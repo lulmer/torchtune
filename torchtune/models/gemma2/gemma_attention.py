@@ -1,14 +1,15 @@
 import torch 
-import torch.nn as nn
-from typing import Optional, Tuple
+from typing import Optional
 from torchtune.modules.kv_cache import KVCache
 from torchtune.modules import (
     CausalSelfAttention,
     RotaryPositionalEmbeddings,
 )
+import torch.nn as nn
 import torch.nn.functional as F
 
-class Gemma2Attention(CausalSelfAttention):
+
+class Gemma2Attention(nn.Module):
     def __init__(self, 
                  hidden_size: int,
                  num_heads: int,
@@ -18,6 +19,7 @@ class Gemma2Attention(CausalSelfAttention):
                  k_proj: torch.Tensor,
                  v_proj: torch.Tensor,
                  output_proj: torch.Tensor,
+                 max_seq_len: int,
                  pos_embeddings: RotaryPositionalEmbeddings,
                  attn_logit_softcapping: Optional[float],
                  query_pre_attn_scalar: Optional[int],
@@ -30,6 +32,7 @@ class Gemma2Attention(CausalSelfAttention):
         self.num_heads = num_heads
         self.num_kv_heads = num_kv_heads
         self.head_dim = head_dim
+        self.max_seq_len = max_seq_len
 
         assert self.num_heads % self.num_kv_heads == 0, 'The number of heads must be divisible by the number of key-value heads.'
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
@@ -55,6 +58,7 @@ class Gemma2Attention(CausalSelfAttention):
     
     def forward(self, 
                 x: torch.Tensor,
+                *,
                 mask: torch.Tensor = None,
                 attn_type: str = 'LOCAL_SLIDING',
                 input_pos: Optional[torch.Tensor] = None
@@ -64,13 +68,20 @@ class Gemma2Attention(CausalSelfAttention):
         assert len(hidden_states_shape) == 3
 
         batch_size, input_len, _ = hidden_states_shape
+
+        if input_len > self.max_seq_len:
+            raise ValueError(
+                f"seq_len ({input_len}) of input tensor should be smaller "
+                f"than max_seq_len ({self.max_seq_len})"
+            )
+
         xq = self.q_proj(x)
         xk = self.k_proj(x)
         xv = self.v_proj(x)
 
         # Positional embedding.
-        xq = self.pos_embeddings(xq, input_pos)
-        xk = self.pos_embeddings(xk, input_pos)
+        xq = self.pos_embeddings(xq, input_pos=input_pos)
+        xk = self.pos_embeddings(xk, input_pos=input_pos)
 
         # Update key-value cache
         if self.kv_cache is not None:
@@ -95,6 +106,7 @@ class Gemma2Attention(CausalSelfAttention):
         v = xv.transpose(1, 2)
 
         # [batch_size, n_local_heads, input_len, max_seq_len]
+        # Preattention scalling factor
         q.mul_(self.scaling)
         scores = torch.matmul(q, k.transpose(2, 3))
         if (

@@ -13,7 +13,7 @@ from torch import Tensor
 from torchtune.modules import KVCache
 
 from torchtune.modules.transformer import _get_clones, TransformerDecoderLayer
-
+from .gemma_decoder_layer import Gemma2DecoderLayer
 
 class Gemma2TransformerDecoder(nn.Module):
     """
@@ -49,7 +49,7 @@ class Gemma2TransformerDecoder(nn.Module):
     def __init__(
         self,
         tok_embeddings: nn.Embedding,
-        layer: TransformerDecoderLayer,
+        layer: Gemma2DecoderLayer,
         num_layers: int,
         max_seq_len: int,
         num_heads: int,
@@ -155,7 +155,7 @@ class Gemma2TransformerDecoder(nn.Module):
 
         for layer, attn_type in zip(self.layers, self.attention_types):
             # shape: [b, s, d]
-            h = layer(h, mask=mask, input_pos=input_pos, attn_type=attn_type)
+            h = layer(h, mask=mask, attn_type=attn_type, input_pos=input_pos)
 
         # shape: [b, s, d]
         h = self.norm(h)
