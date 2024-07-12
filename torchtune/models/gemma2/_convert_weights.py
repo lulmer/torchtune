@@ -10,8 +10,30 @@ import torch
 
 from torchtune.models.convert_weights import _FROM_HF, get_mapped_key
 
+# Created a new mapping to convert the keys from HF GEMMA2 to Tune's because I what not sure wether to alter
+# the keys of torchtune.models.convert_weights import _FROM_HF
+_FROM_HF_GEMMA2 = {
+    "model.embed_tokens.weight": "tok_embeddings.weight",
+    "model.layers.{}.self_attn.q_proj.weight": "layers.{}.attn.q_proj.weight",
+    "model.layers.{}.self_attn.k_proj.weight": "layers.{}.attn.k_proj.weight",
+    "model.layers.{}.self_attn.v_proj.weight": "layers.{}.attn.v_proj.weight",
+    "model.layers.{}.self_attn.o_proj.weight": "layers.{}.attn.output_proj.weight",
+    "model.layers.{}.self_attn.rotary_emb.inv_freq": None,
+    "model.layers.{}.mlp.gate_proj.weight": "layers.{}.mlp.w1.weight",
+    "model.layers.{}.mlp.up_proj.weight": "layers.{}.mlp.w3.weight",
+    "model.layers.{}.mlp.down_proj.weight": "layers.{}.mlp.w2.weight",
+    "model.layers.{}.input_layernorm.weight": "layers.{}.input_layernorm.scale",
+    "model.layers.{}.post_attention_layernorm.weight": "layers.{}.post_attn_layernorm.scale",
+    "model.norm.weight": "norm.scale",
+    "lm_head.weight": "output.weight",
+    "model.layers.{}.post_feedforward_layernorm.weight": "layers.{}.post_ffn_layernorm.scale",
+    "model.layers.{}.pre_feedforward_layernorm.weight": "layers.{}.pre_ffn_layernorm.scale",
+}
 
-def gemma_hf_to_tune(
+   
+
+
+def gemma2_hf_to_tune(
     state_dict: Dict[str, torch.Tensor],
     num_heads: int = 8,
     num_kv_heads: int = 1,
@@ -49,16 +71,17 @@ def gemma_hf_to_tune(
         if (
             "rotary_emb.inv_freq" not in key and "lm_head.weight" not in key
         ):  # Skip loading the position embeddings and output projection weights
-            new_key = get_mapped_key(key, _FROM_HF)
+            new_key = get_mapped_key(key, _FROM_HF_GEMMA2)
             if "q_proj" in key:
                 value = _permute(value, num_heads)
             elif "k_proj" in key:
                 value = _permute(value, num_kv_heads)
             converted_state_dict[new_key] = value
+
     return converted_state_dict
 
 
-def gemma_tune_to_hf(
+def gemma2_tune_to_hf(
     state_dict: Dict[str, torch.Tensor],
     num_heads: int = 8,
     num_kv_heads: int = 1,
@@ -85,7 +108,7 @@ def gemma_tune_to_hf(
 
     """
     converted_state_dict = {}
-    inverted_mapping_dict = {v: k for k, v in _FROM_HF.items()}
+    inverted_mapping_dict = {v: k for k, v in _FROM_HF_GEMMA2.items()}
 
     def _permute(t, n_heads):
         return (

@@ -28,7 +28,7 @@ def gemma2_9b() -> Gemma2TransformerDecoder:
         GemmaTransformerDecoder: Instantiation of Gemma 2B model
     """
     return gemma2(
-        vocab_size=256_128,
+        vocab_size=256_000,
         num_layers=42,
         num_heads=16,
         num_kv_heads=8,
@@ -38,7 +38,7 @@ def gemma2_9b() -> Gemma2TransformerDecoder:
         max_seq_len=8192,
         use_pre_ffw_norm=True,
         use_post_ffw_norm=True,
-        #final_logit_softcapping=30.0, # To be added somewhere in the decoding process
+        #final_logit_softcapping=30.0, # To be added somewhere in the decoding proces/s
         attn_logit_softcapping=50.0,
         slidding_window_size=4096,
         attention_types=['LOCAL_SLIDING', 'GLOBAL'] * 21,
@@ -55,7 +55,7 @@ def gemma2_27b() -> Gemma2TransformerDecoder:
         GemmaTransformerDecoder: Instantiation of Gemma 2B model
     """
     return gemma2(
-        vocab_size=256_128,
+        vocab_size=256_000,
         num_layers=46,
         num_heads=32,
         num_kv_heads=16,
@@ -75,7 +75,7 @@ def gemma2_27b() -> Gemma2TransformerDecoder:
 
 def gemma_tokenizer(path: str) -> SentencePieceTokenizer:
     """
-    Tokenizer for Gemma.
+    Tokenizer for Gemma2.
 
     Args:
         path (str): path to the tokenizer
