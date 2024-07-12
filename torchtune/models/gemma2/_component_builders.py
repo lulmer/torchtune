@@ -10,10 +10,8 @@ from functools import partial
 from torchtune.modules.common_utils import reparametrize_as_dtype_state_dict_post_hook
 
 from torchtune.modules import (
-    CausalSelfAttention,
     FeedForward,
     RotaryPositionalEmbeddings,
-    TransformerDecoderLayer,
 )
 from torchtune.models.gemma2.rms_norm import GemmaRMSNorm
 from torchtune.models.gemma2.transformer import Gemma2TransformerDecoder
@@ -23,7 +21,7 @@ from torchtune.models.gemma2.gemma_decoder_layer import Gemma2DecoderLayer
 from torchtune.modules.peft import LORA_ATTN_MODULES, LoRALinear
 
 """
-Component builders for the Gemma 2B models and popular variants such as LoRA.
+Component builders for the Gemma2 9B models and popular variants such as LoRA.
 
 torchtune provides composable building blocks. Builder functions help
 stitch these building blocks into higher-level components. This design has
@@ -64,24 +62,28 @@ def gemma2(
     sliding-window attention
 
     Args:
-        vocab_size (int): number of tokens in vocabulary.
-        num_layers (int): number of layers in the transformer decoder.
-        num_heads (int): number of query heads. For MHA this is also the
-            number of heads for key and value
-        head_dim (int): dimension of head
-        num_kv_heads (int): number of key and value heads.
-        embed_dim (int): embedding dimension for self-attention
-        intermediate_dim (int): intermediate dimension for MLP
-        max_seq_len (int): maximum sequence length the model will be run with,
-        attn_dropout (float): dropout value passed onto scaled_dot_product_attention.
-            Default: 0.0
-        norm_eps (float): epsilon in RMS norms Default: 1e-6
-        rope_base (int): base for the rotary positional embeddings. Default: 10_000
-        norm_embeddings (bool): whether to apply layer norm before the self-attention
-            and mlp layers. Default: True
+       vocab_size (int): The number of tokens in the vocabulary.
+       num_layers (int): The number of layers in the transformer decoder.
+       num_heads (int): The number of query heads. For multi-head attention, this is also the
+           number of heads for key and value.
+       head_dim (int): The dimension of each head.
+       num_kv_heads (int): The number of key and value heads.
+       embed_dim (int): The embedding dimension for self-attention.
+       intermediate_dim (int): The intermediate dimension for the MLP.
+       max_seq_len (int): The maximum sequence length that the model will be run with.
+       sliding_window_size (int): The size of the sliding window for attention.
+       attention_types (list): A list of types of attention mechanisms to use.
+       use_pre_ffw_norm (bool): Whether to use layer normalization before the feed-forward network.
+       use_post_ffw_norm (bool): Whether to use layer normalization after the feed-forward network.
+       attn_logit_softcapping (float): The soft capping value for attention logits.
+       query_pre_attn_scalar (float): A scalar applied to the query before attention.
+       norm_eps (float): Epsilon value for RMS norms. Defaults to 1e-6.
+       rope_base (int): Base for the rotary positional embeddings. Defaults to 10,000.
+       norm_embeddings (bool): Whether to apply layer normalization before the self-attention
+           and MLP layers. Defaults to True.
 
     Returns:
-        GemmaTransformerDecoder: Instantiation of gemma model.
+       Gemma2TransformerDecoder: An instance of the gemma model decoder.
     """
     rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
     attn = Gemma2Attention(
@@ -100,20 +102,6 @@ def gemma2(
         sliding_window_size=slidding_window_size,
         query_pre_attn_scalar=query_pre_attn_scalar,
     )
-
-    # self.qkv_proj = nn.Linear(hidden_size, (self.num_heads + 2 * self.num_kv_heads) * self.head_dim)
-    # self.o_proj = nn.Linear(
-    #         self.num_heads * self.head_dim,
-    #         self.hidden_size,
-    #         quant=quant)
-    ###########################################
-    # qkv = self.qkv_proj(hidden_states)
-    # xq, xk, xv = qkv.split([self.q_size, self.kv_size, self.kv_size],
-    #                         dim=-1)
-
-    # xq = xq.view(batch_size, -1, self.num_heads, self.head_dim)
-    # xk = xk.view(batch_size, -1, self.num_kv_heads, self.head_dim)
-    # xv = xv.view(batch_size, -1, self.num_kv_heads, self.head_dim)
 
     mlp = gemma_mlp(dim=embed_dim, hidden_dim=intermediate_dim)
 
@@ -168,11 +156,11 @@ def gemma_mlp(dim: int, hidden_dim: int) -> FeedForward:
     return FeedForward(gate_proj=gate_proj, down_proj=down_proj, up_proj=up_proj, activation=activation)
 
 
-def lora_gemma(
+def lora_gemma2(
     lora_attn_modules: List[LORA_ATTN_MODULES],
     apply_lora_to_mlp: bool = False,
     *,
-    # gemma args
+    # gemma2 args
     vocab_size: int,
     num_layers: int,
     num_heads: int,
@@ -181,7 +169,12 @@ def lora_gemma(
     embed_dim: int,
     intermediate_dim: int,
     max_seq_len: int,
-    attn_dropout: float = 0.0,
+    sliding_window_size: int,
+    attention_types: list,
+    use_pre_ffw_norm: bool,
+    use_post_ffw_norm: bool,
+    attn_logit_softcapping: float,
+    query_pre_attn_scalar: float,
     norm_eps: float = 1e-6,
     rope_base: int = 10_000,
     norm_embeddings: bool = True,
@@ -193,48 +186,55 @@ def lora_gemma(
 ) -> Gemma2TransformerDecoder:
     """
     Return a version of Gemma with LoRA applied based on the passed in configuration.
-    Note: output projection lora is not supported because it is tied to token embeddings
+
+    Note that output projection LoRA is not supported because it is tied to token embeddings.
 
     Args:
-        lora_attn_modules (List[LORA_ATTN_MODULES]): list of which linear layers
+        lora_attn_modules (List[LORA_ATTN_MODULES]): A list of which linear layers
             LoRA should be applied to in each self-attention block. Options are
-            ``{"q_proj", "k_proj", "v_proj", "output_proj"}``.
-        apply_lora_to_mlp (bool): whether to apply LoRA to the MLP in each transformer layer.
-            Default: False
-        vocab_size (int): number of tokens in vocabulary.
-        num_layers (int): number of layers in the transformer decoder.
-        num_heads (int): number of query heads. For MHA this is also the
-            number of heads for key and value
-        head_dim (int): dimension of head
-        num_kv_heads (int): number of key and value heads.
-        embed_dim (int): embedding dimension for self-attention
-        intermediate_dim (int): intermediate dimension for MLP
-        max_seq_len (int): maximum sequence length the model will be run with,
-        attn_dropout (float): dropout value passed onto scaled_dot_product_attention.
-            Default: 0.0
-        norm_eps (float): epsilon in RMS norms Default: 1e-6
-        rope_base (int): base for the rotary positional embeddings. Default: 10_000
-        norm_embeddings (bool): whether to apply layer norm before the self-attention
-            and mlp layers. Default: True
-        lora_rank (int): rank of each low-rank approximation
-        lora_alpha (float): scaling factor for the low-rank approximation
-        lora_dropout (float): LoRA dropout probability. Default: 0.0
-        quantize_base: (bool): Whether to quantize base model weights or not. Only applied to base
-            weights within linear layers LoRA is applied to. The final output linear projection is not
-            supported for quantization currently.
+            ``{"q_proj", "k_proj", "v_proj"}``. Output projection is not supported.
+        apply_lora_to_mlp (bool): Whether to apply LoRA to the MLP in each transformer layer.
+            Defaults to False.
+        vocab_size (int): The number of tokens in the vocabulary.
+        num_layers (int): The number of layers in the transformer decoder.
+        num_heads (int): The number of query heads. For multi-head attention, this is also the
+            number of heads for key and value.
+        head_dim (int): The dimension of each head.
+        num_kv_heads (int): The number of key and value heads.
+        embed_dim (int): The embedding dimension for self-attention.
+        intermediate_dim (int): The intermediate dimension for the MLP.
+        max_seq_len (int): The maximum sequence length that the model will be run with.
+        sliding_window_size (int): The size of the sliding window for attention.
+        attention_types (list): A list of types of attention mechanisms to use.
+        use_pre_ffw_norm (bool): Whether to use layer normalization before the feed-forward network.
+        use_post_ffw_norm (bool): Whether to use layer normalization after the feed-forward network.
+        attn_logit_softcapping (float): The soft capping value for attention logits.
+        query_pre_attn_scalar (float): A scalar applied to the query before attention.
+        norm_eps (float): Epsilon value for RMS norms. Defaults to 1e-6.
+        rope_base (int): Base for the rotary positional embeddings. Defaults to 10,000.
+        norm_embeddings (bool): Whether to apply layer normalization before the self-attention
+            and MLP layers. Defaults to True.
+        lora_rank (int): The rank of each low-rank approximation for LoRA.
+        lora_alpha (float): The scaling factor for the low-rank approximation in LoRA.
+        lora_dropout (float): The dropout probability for LoRA. Defaults to 0.0.
+        quantize_base (bool): Whether to quantize base model weights or not. Only applied to base
+            weights within linear layers that LoRA is applied to. Quantization of the final output
+            linear projection is not supported currently.
 
     Returns:
-        GemmaTransformerDecoder: Instantiation of Gemma model with LoRA applied to
+        Gemma2TransformerDecoder: An instance of the Gemma2 transformer decoder with LoRA applied to
         a subset of the attention projections in each layer.
     """
-    self_attn = lora_gemma_self_attention(
+    self_attn = lora_gemma2_self_attention(
         lora_modules=lora_attn_modules,
         embed_dim=embed_dim,
         head_dim=head_dim,
         num_heads=num_heads,
         num_kv_heads=num_kv_heads,
         max_seq_len=max_seq_len,
-        attn_dropout=attn_dropout,
+        attn_logit_softcapping=attn_logit_softcapping,
+        sliding_window_size=sliding_window_size,
+        query_pre_attn_scalar=query_pre_attn_scalar,
         rope_base=rope_base,
         lora_rank=lora_rank,
         lora_alpha=lora_alpha,
@@ -253,13 +253,27 @@ def lora_gemma(
         )
     else:
         mlp = gemma_mlp(dim=embed_dim, hidden_dim=intermediate_dim)
+    
+    if use_pre_ffw_norm :
+        pre_ffw_norm = GemmaRMSNorm(embed_dim, eps=norm_eps)
+    else :
+        pre_ffw_norm = None
 
-    layer = TransformerDecoderLayer(
+    if use_post_ffw_norm :
+        post_ffw_norm = GemmaRMSNorm(embed_dim, eps=norm_eps)
+    else :
+        post_ffw_norm = None
+
+
+    layer = Gemma2DecoderLayer(
+        input_layernorm=GemmaRMSNorm(embed_dim, eps=norm_eps),
         attn=self_attn,
+        post_attn_layernorm=GemmaRMSNorm(embed_dim, eps=norm_eps),
+        pre_ffn_layernorm=pre_ffw_norm,
         mlp=mlp,
-        sa_norm=GemmaRMSNorm(embed_dim, eps=norm_eps),
-        mlp_norm=GemmaRMSNorm(embed_dim, eps=norm_eps),
+        post_ffn_layernorm=post_ffw_norm
     )
+
     tok_embeddings = nn.Embedding(vocab_size, embed_dim)
 
     model = Gemma2TransformerDecoder(
@@ -269,6 +283,7 @@ def lora_gemma(
         max_seq_len=max_seq_len,
         num_heads=num_heads,
         head_dim=head_dim,
+        attention_types=attention_types, 
         norm=GemmaRMSNorm(embed_dim, eps=norm_eps),
         norm_embeddings=norm_embeddings,
     )
@@ -289,23 +304,27 @@ def lora_gemma(
     return model
 
 
-def lora_gemma_self_attention(
+def lora_gemma2_self_attention(
     lora_modules: List[LORA_ATTN_MODULES],
     *,
-    # CausalSelfAttention args
+    # Gemma2Attention args
     embed_dim: int,
     num_heads: int,
     head_dim: int,
     num_kv_heads: int,
     max_seq_len: int,
-    attn_dropout: float = 0.0,
     rope_base: int = 10_000,
+    attn_logit_softcapping: float, 
+    sliding_window_size: int,
+    query_pre_attn_scalar: float,
     # LoRA args
     lora_rank: int,
     lora_alpha: float,
     lora_dropout: float = 0.0,
     quantize_base: bool = False,
-) -> CausalSelfAttention:
+) -> Gemma2Attention:
+    
+
     if not lora_modules:
         raise ValueError(
             f"Must pass one or more of {LORA_ATTN_MODULES} as lora_modules"
@@ -363,8 +382,9 @@ def lora_gemma_self_attention(
     )
 
     rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
-    self_attn = CausalSelfAttention(
-        embed_dim=embed_dim,
+
+    self_attn = Gemma2Attention(
+        hidden_size=embed_dim,
         num_heads=num_heads,
         num_kv_heads=num_kv_heads,
         head_dim=head_dim,
@@ -372,9 +392,12 @@ def lora_gemma_self_attention(
         k_proj=k_proj,
         v_proj=v_proj,
         output_proj=output_proj,
+        attn_logit_softcapping=attn_logit_softcapping,
         pos_embeddings=rope,
+        kv_cache=None,
         max_seq_len=max_seq_len,
-        attn_dropout=attn_dropout,
+        sliding_window_size=sliding_window_size,
+        query_pre_attn_scalar=query_pre_attn_scalar,
     )
     return self_attn
 
