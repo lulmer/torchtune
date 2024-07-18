@@ -84,7 +84,7 @@ def gemma2(
         GemmaTransformerDecoder: Instantiation of gemma model.
     """
     rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
-    self_att = Gemma2Attention(
+    attn = Gemma2Attention(
         hidden_size=embed_dim,
         num_heads=num_heads,
         num_kv_heads=num_kv_heads,
@@ -123,18 +123,18 @@ def gemma2(
         pre_ffw_norm = None
 
     if use_post_ffw_norm :
-        pre_post_norm = GemmaRMSNorm(embed_dim, eps=norm_eps)
+        post_ffw_norm = GemmaRMSNorm(embed_dim, eps=norm_eps)
     else :
-        pre_post_norm = None
+        post_ffw_norm = None
 
 
     layer = Gemma2DecoderLayer(
         input_layernorm=GemmaRMSNorm(embed_dim, eps=norm_eps),
-        attn=self_att,
+        attn=attn,
         post_attn_layernorm=GemmaRMSNorm(embed_dim, eps=norm_eps),
         pre_ffn_layernorm=pre_ffw_norm,
         mlp=mlp,
-        post_ffn_layernorm=pre_post_norm
+        post_ffn_layernorm=post_ffw_norm
     )
 
     

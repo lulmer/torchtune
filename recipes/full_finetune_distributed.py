@@ -526,7 +526,8 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
 
                 loss = loss / self._gradient_accumulation_steps
                 running_loss += loss
-                loss.backward()
+                
+                
 
                 # Step with optimizer
                 if (idx + 1) % self._gradient_accumulation_steps == 0:

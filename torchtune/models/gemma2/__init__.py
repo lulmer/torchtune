@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from ._component_builders import gemma2  # noqa
-from ._convert_weights import gemma_hf_to_tune, gemma_tune_to_hf  # noqa
+from ._convert_weights import gemma2_hf_to_tune, gemma2_tune_to_hf  # noqa
 from ._model_builders import (  # noqa
     gemma2_9b,
     gemma2_27b,

@@ -30,6 +30,9 @@ class ModelType(Enum):
     GEMMA = "gemma"
     """Gemma family of models. See :func:`~torchtune.models.gemma.gemma`"""
 
+    GEMMA2 = "gemma2"
+    """Gemma2 family of models. See :func:`~torchtune.models.gemma2.gemma2`"""
+
     LLAMA2 = "llama2"
     """Llama2 family of models. See :func:`~torchtune.models.llama2.llama2`"""
 
