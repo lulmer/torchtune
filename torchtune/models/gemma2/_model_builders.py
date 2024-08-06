@@ -8,7 +8,7 @@ from typing import List
 from torchtune.models.gemma2._component_builders import gemma2, lora_gemma2
 from torchtune.models.gemma2.transformer import Gemma2TransformerDecoder
 
-from torchtune.modules.tokenizers import SentencePieceTokenizer
+from torchtune.models.gemma import gemma_tokenizer
 from torchtune.modules.peft import LORA_ATTN_MODULES
 
 from functools import partial
@@ -193,21 +193,6 @@ Builder for creating a Gemma2 model with QLoRA enabled. Base model weights in li
 that LoRA is applied to are quantized per the QLoRA paper: https://arxiv.org/abs/2305.14314.
 Please see `lora_gemma2_27b` for full API arguments.
 """
-
-def gemma_tokenizer(path: str) -> SentencePieceTokenizer:
-    """
-    Tokenizer for Gemma2.
-
-    Args:
-        path (str): path to the tokenizer
-
-    Returns:
-        SentencePieceTokenizer: Instantiation of the Gemma tokenizer
-    """
-    tokenizer = SentencePieceTokenizer(path)
-    tokenizer.pad_id = 0
-    return tokenizer
-
 
 
 
