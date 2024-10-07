@@ -4,15 +4,20 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 import numpy as np
 import PIL
 import pytest
 
 import torch
+
 from tests.test_utils import assert_expected
 
-from torchtune.models.clip._transforms import CLIPImageTransform
-from torchtune.utils.seed import set_seed
+from torchtune.models.clip._transform import CLIPImageTransform
+from torchtune.models.clip.inference._transform import (
+    CLIPImageTransform as CLIPImageTransformInference,
+)
+from torchtune.training.seed import set_seed
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +37,17 @@ class TestCLIPImageTransform:
                 "expected_tile_max": [1.0, 1.0],
                 "expected_tile_min": [0.0, 0.0],
                 "expected_aspect_ratio": [1, 2],
+                "pad_max_tiles": False,
+            },
+            {
+                "image_size": (100, 400, 3),
+                "expected_shape": torch.Size([4, 3, 224, 224]),
+                "resize_to_max_canvas": False,
+                "expected_tile_means": [0.2230, 0.1763, 0.0, 0.0],
+                "expected_tile_max": [1.0, 1.0, 0.0, 0.0],
+                "expected_tile_min": [0.0, 0.0, 0.0, 0.0],
+                "expected_aspect_ratio": [1, 2],
+                "pad_max_tiles": True,
             },
             {
                 "image_size": (1000, 300, 3),
@@ -41,6 +57,7 @@ class TestCLIPImageTransform:
                 "expected_tile_max": [0.9705, 0.9694, 0.9521, 0.9314],
                 "expected_tile_min": [0.0353, 0.0435, 0.0528, 0.0],
                 "expected_aspect_ratio": [4, 1],
+                "pad_max_tiles": False,
             },
             {
                 "image_size": (200, 200, 3),
@@ -50,6 +67,8 @@ class TestCLIPImageTransform:
                 "expected_tile_max": [0.9922, 0.9926, 0.9970, 0.9908],
                 "expected_tile_min": [0.0056, 0.0069, 0.0059, 0.0033],
                 "expected_aspect_ratio": [2, 2],
+                "pad_max_tiles": False,
+                "pad_tiles": 1,
             },
             {
                 "image_size": (600, 200, 3),
@@ -59,6 +78,17 @@ class TestCLIPImageTransform:
                 "expected_tile_max": [1.0, 1.0, 1.0],
                 "expected_tile_min": [0.0, 0.0, 0.0],
                 "expected_aspect_ratio": [3, 1],
+                "pad_max_tiles": False,
+            },
+            {
+                "image_size": (600, 200, 3),
+                "expected_shape": torch.Size([4, 3, 224, 224]),
+                "resize_to_max_canvas": False,
+                "expected_tile_means": [0.4473, 0.4469, 0.3032, 0.0],
+                "expected_tile_max": [1.0, 1.0, 1.0, 0.0],
+                "expected_tile_min": [0.0, 0.0, 0.0, 0.0],
+                "expected_aspect_ratio": [3, 1],
+                "pad_max_tiles": True,
             },
         ],
     )
@@ -71,8 +101,23 @@ class TestCLIPImageTransform:
             possible_resolutions=None,
             max_num_tiles=4,
             resample="bilinear",
+            dtype=torch.float32,
             resize_to_max_canvas=params["resize_to_max_canvas"],
+            pad_max_tiles=params["pad_max_tiles"],
         )
+
+        image_transform_inference = CLIPImageTransformInference(
+            image_mean=None,
+            image_std=None,
+            tile_size=224,
+            possible_resolutions=None,
+            max_num_tiles=4,
+            resample="bilinear",
+            resize_to_max_canvas=params["resize_to_max_canvas"],
+            antialias=True,
+            pad_max_tiles=params["pad_max_tiles"],
+        )
+
         # Generate a deterministic image using np.arange for reproducibility
         image_size = params["image_size"]
         image = (
@@ -83,9 +128,18 @@ class TestCLIPImageTransform:
         image = PIL.Image.fromarray(image)
 
         # Apply the transformation
-        output = image_transform(image=image)
+        output = image_transform({"image": image})
         output_image = output["image"]
         output_ar = output["aspect_ratio"]
+
+        inference_output = image_transform_inference(image=image)
+        inference_output_image = inference_output["image"]
+        inference_output_ar = inference_output["aspect_ratio"]
+
+        # Check output is the same across CLIPImageTransform and CLIPImageTransformInference.
+        assert torch.allclose(output_image, inference_output_image)
+        assert output_ar[0] == inference_output_ar[0]
+        assert output_ar[1] == inference_output_ar[1]
 
         # Check if the output shape matches the expected shape
         assert (
@@ -115,7 +169,13 @@ class TestCLIPImageTransform:
         ), f"Expected aspect ratio {params['expected_aspect_ratio']} but got {tuple(output_ar.numpy())}"
 
         # number of tiles matches the product of the aspect ratio
-        expected_num_tiles = output_ar[0] * output_ar[1]
-        assert (
-            expected_num_tiles == output_image.shape[0]
-        ), f"Expected {expected_num_tiles} tiles but got {output_image.shape[0]}"
+        if params["pad_max_tiles"]:
+            # max_num_tiles=4.
+            assert (
+                4 == output_image.shape[0]
+            ), f"Expected 4 tiles but got {output_image.shape[0]}"
+        else:
+            expected_num_tiles = output_ar[0] * output_ar[1]
+            assert (
+                expected_num_tiles == output_image.shape[0]
+            ), f"Expected {expected_num_tiles} tiles but got {output_image.shape[0]}"

@@ -19,7 +19,7 @@ import pytest
 
 import torch
 from torch import nn
-from torchtune.data import ChatFormat, Message, PromptTemplate, truncate
+from torchtune.data import Message, PromptTemplate, truncate
 from torchtune.modules.tokenizers import ModelTokenizer
 from torchtune.modules.transforms import Transform
 
@@ -40,6 +40,38 @@ TOKENIZER_PATHS = {
     "llama2": "/tmp/test-artifacts/tokenizer.model",
     "llama3": "/tmp/test-artifacts/tokenizer_llama3.model",
 }
+
+# Taken from Open-Orca/SlimOrca-Dedup on Hugging Face:
+# https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup
+CHAT_SAMPLE = {
+    "system": "You are an AI assistant. User will you give you a task. Your goal is to complete the task as faithfully as you can. While performing the task think step-by-step and justify your steps.",  # noqa: B950
+    "user": "Please briefly summarize this news article:\n\nAOL.com Video - Father Lets 8-Year-Old Drive On Icy Road\n\nDescription:Would you let your 8-year-old drive your car? How about on an icy road? Well one father in Russia did just that, and recorded the entire thing. To her credit, the child seemed to be doing a great job. (0:44)\n\nTags: 8-year-old driver , caught on camera , child driver , pix11\n\nSummary:",  # noqa: B950
+    "assistant": "A father in Russia allowed his 8-year-old child to drive his car on an icy road and recorded the event. The child appeared to be handling the situation well, showcasing their driving skills despite the challenging conditions.",  # noqa: B950
+}
+
+MESSAGE_SAMPLE_TRAIN_ON_INPUT = [
+    Message(
+        role="system",
+        content=CHAT_SAMPLE["system"],
+    ),
+    Message(
+        role="user",
+        content=CHAT_SAMPLE["user"],
+    ),
+    Message(
+        role="assistant",
+        content=CHAT_SAMPLE["assistant"],
+    ),
+]
+
+MESSAGE_SAMPLE = [
+    Message(role="system", content=CHAT_SAMPLE["system"], masked=True),
+    Message(role="user", content=CHAT_SAMPLE["user"], masked=True),
+    Message(
+        role="assistant",
+        content=CHAT_SAMPLE["assistant"],
+    ),
+]
 
 
 class DummyTokenizer(ModelTokenizer, Transform):
@@ -113,10 +145,14 @@ class DummyTokenizer(ModelTokenizer, Transform):
         return tokenized_messages, mask
 
     def __call__(self, sample: Mapping[str, Any]) -> Mapping[str, Any]:
-        messages = sample.pop("messages")
+        messages: List[Message] = sample.pop("messages")
+        images = []
+        for message in messages:
+            images += message.get_media()
         tokens, mask = self.tokenize_messages(messages)
         sample["tokens"] = tokens
         sample["mask"] = mask
+        sample["images"] = images
         return sample
 
     @property
@@ -132,7 +168,7 @@ class DummyTokenizer(ModelTokenizer, Transform):
         return -2
 
 
-class DummyChatFormat(ChatFormat):
+class DummyChatFormat:
 
     B_SYS, E_SYS = "System:\n", "\n"
     B_INST, E_INST = "User:\n", "\nAssistant:\n"
@@ -326,3 +362,11 @@ def assert_dialogue_equal(actual, expected):
     for i in range(len(actual)):
         assert actual[i].role == expected[i].role
         assert actual[i].text_content == expected[i].text_content
+
+
+def mps_ignored_test() -> bool:
+    return pytest.mark.skipif(
+        torch.backends.mps.is_available() and torch.backends.mps.is_built(),
+        reason="Test skipped due to torch being compiled with MPS"
+        "see https://github.com/pytorch/torchtune/issues/1707 for more information",
+    )

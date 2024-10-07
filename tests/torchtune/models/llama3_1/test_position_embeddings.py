@@ -7,12 +7,12 @@
 import pytest
 import torch
 
-from tests.test_utils import assert_expected
+from tests.test_utils import assert_expected, mps_ignored_test
 from torch import tensor
 
 from torchtune.models.llama3_1._position_embeddings import Llama3ScaledRoPE
 
-from torchtune.utils.seed import set_seed
+from torchtune.training.seed import set_seed
 
 
 @pytest.fixture(autouse=True)
@@ -61,13 +61,14 @@ class TestLlama3ScaledRoPE:
 
     def test_cache_equality(self, input, rope) -> None:
         # Have to explicitly call _rope_init() to initialize theta matrix
-        rope._rope_init()
+        rope.rope_init()
         cache = rope.cache
 
         assert_expected(cache.mean(), self.EXPECTED_FREQS_CIS_MEAN, atol=1e-4)
         assert_expected(cache.sum(), self.EXPECTED_FREQS_CIS_SUM, atol=1e-4)
         assert_expected(cache.max(), self.EXPECTED_FREQS_CIS_MAX)
 
+    @mps_ignored_test()
     def test_forward(self, input, rope) -> None:
         x_out = rope(input)
 
@@ -79,6 +80,7 @@ class TestLlama3ScaledRoPE:
         # check shapes
         assert_expected(x_out.shape, input.shape)
 
+    @mps_ignored_test()
     def test_forward_with_curr_pos(self, input, rope) -> None:
         (
             _,
@@ -99,6 +101,7 @@ class TestLlama3ScaledRoPE:
         # check shapes
         assert_expected(x_out.shape, input.shape)
 
+    @mps_ignored_test()
     def test_forward_with_2d_pos_ids(self, input, rope) -> None:
         """
         Use input_pos to indicate positions of each token relative to its sequence
@@ -132,7 +135,7 @@ class TestLlama3ScaledRoPE:
         with torch.device("meta"):
             meta_rope = Llama3ScaledRoPE(dim=head_dim, max_seq_len=max_seq_len)
 
-        meta_rope._rope_init()
+        meta_rope.rope_init()
         for p1, p2 in zip(rope_on_device.buffers(), meta_rope.buffers()):
             torch.testing.assert_close(p1, p2)
 
