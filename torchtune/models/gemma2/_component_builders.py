@@ -11,8 +11,8 @@ from torchtune.modules.common_utils import reparametrize_as_dtype_state_dict_pos
 
 from torchtune.modules import (
     FeedForward,
-    RotaryPositionalEmbeddings,
 )
+from torchtune.models.gemma2.gemma_rotary import Gemma2RotaryPositionalEmbeddings
 from torchtune.models.gemma2.rms_norm import GemmaRMSNorm
 from torchtune.models.gemma2.transformer import Gemma2TransformerDecoder
 from torchtune.models.gemma2.gemma_attention import Gemma2Attention
@@ -85,7 +85,7 @@ def gemma2(
     Returns:
        Gemma2TransformerDecoder: An instance of the gemma model decoder.
     """
-    rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
+    rope = Gemma2RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
     attn = Gemma2Attention(
         hidden_size=embed_dim,
         num_heads=num_heads,
@@ -381,7 +381,7 @@ def lora_gemma2_self_attention(
         else nn.Linear(num_heads * head_dim, embed_dim, bias=False)
     )
 
-    rope = RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
+    rope = Gemma2RotaryPositionalEmbeddings(dim=head_dim, max_seq_len=max_seq_len, base=rope_base)
 
     self_attn = Gemma2Attention(
         hidden_size=embed_dim,
